@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" width="192" height="192">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0284c7" />
+      <stop offset="100%" stop-color="#0369a1" />
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#000" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+  <rect width="192" height="192" rx="42" fill="url(#bg)"/>
+  <g filter="url(#shadow)">
+    <!-- Medical Cross -->
+    <rect x="76" y="38" width="40" height="116" rx="10" fill="#ffffff"/>
+    <rect x="38" y="76" width="116" height="40" rx="10" fill="#ffffff"/>
+    <!-- Attendance Checkmark in center -->
+    <circle cx="96" cy="96" r="28" fill="#0284c7"/>
+    <path d="M85 96 L93 104 L108 88" stroke="#ffffff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  </g>
+</svg>
