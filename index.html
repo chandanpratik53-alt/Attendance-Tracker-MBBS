@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>MBBS Attendance Tracker</title>
+  
+  <!-- PWA & Mobile Web Capabilities -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0284c7">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="MBBS Attend">
+  <link rel="apple-touch-icon" href="assets/icons/icon-192.svg">
+  <link rel="icon" type="image/svg+xml" href="assets/icons/icon-192.svg">
+
+  <!-- Core Stylesheets (100% offline, zero CDN dependencies) -->
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/components.css">
+</head>
+<body>
+
+  <!-- App Header -->
+  <header class="app-header">
+    <div class="brand">
+      <img src="assets/icons/icon-192.svg" alt="MBBS Logo" class="brand-icon">
+      <div>
+        <h1 class="brand-title">MBBS Attend</h1>
+        <span class="brand-subtitle">4th Year Tracker • Offline</span>
+      </div>
+    </div>
+    <div class="header-actions">
+      <span id="offline-badge" class="badge badge-safe">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12l5 5L20 7"/></svg>
+        Offline Ready
+      </span>
+      <button id="theme-toggle-btn" class="icon-btn" title="Toggle Light/Dark Theme" aria-label="Toggle Theme">
+        <svg id="theme-icon" viewBox="0 0 24 24"><path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- Main View Container -->
+  <main class="main-content">
+
+    <!-- 1. DASHBOARD VIEW -->
+    <section id="view-dashboard" class="view-section active">
+      <!-- Today's Hero Banner -->
+      <div class="card" style="background: linear-gradient(135deg, rgba(2,132,199,0.2), rgba(15,23,42,0.8)); border-color: rgba(2,132,199,0.3);">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <span style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">Today's Schedule</span>
+            <h2 id="dash-today-date" style="margin:2px 0 0 0; font-size:1.15rem;">--</h2>
+          </div>
+          <button id="btn-goto-today" class="btn btn-primary btn-sm">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+            Mark Attendance
+          </button>
+        </div>
+      </div>
+
+      <!-- Pending Sessions Warning Banner -->
+      <div id="dash-pending-alert" class="alert-banner warning" style="display:none;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <div>
+          <strong>Pending Sessions:</strong> You have <span id="dash-pending-count">0</span> unmarked sessions. They are excluded from confirmed calculations. Please mark them!
+        </div>
+      </div>
+
+      <!-- Aggregate Attendance Section -->
+      <h3 style="margin-top:16px;">Aggregate Attendance</h3>
+      <div class="metric-grid">
+        <!-- Theory Aggregate -->
+        <div class="metric-card theory">
+          <span class="metric-label">Aggregate Theory</span>
+          <div class="metric-value-row">
+            <span id="agg-theory-percent" class="metric-value">--%</span>
+            <span class="metric-target">Min 75%</span>
+          </div>
+          <div class="metric-counts">
+            <span id="agg-theory-counts">0 / 0 classes</span>
+          </div>
+          <div class="progress-bar-bg">
+            <div id="agg-theory-progress" class="progress-bar-fill safe" style="width:0%;"></div>
+          </div>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
+            <span id="agg-theory-badge" class="badge badge-neutral">No data</span>
+            <span id="agg-theory-bunks" style="font-size:0.75rem; color:var(--text-muted);">Safe bunks: 0</span>
+          </div>
+        </div>
+
+        <!-- Clinical Aggregate -->
+        <div class="metric-card clinical">
+          <span class="metric-label">Aggregate Clinical</span>
+          <div class="metric-value-row">
+            <span id="agg-clin-percent" class="metric-value">--%</span>
+            <span class="metric-target">Min 80%</span>
+          </div>
+          <div class="metric-counts">
+            <span id="agg-clin-counts">0 / 0 classes</span>
+          </div>
+          <div class="progress-bar-bg">
+            <div id="agg-clin-progress" class="progress-bar-fill safe" style="width:0%;"></div>
+          </div>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
+            <span id="agg-clin-badge" class="badge badge-neutral">No data</span>
+            <span id="agg-clin-bunks" style="font-size:0.75rem; color:var(--text-muted);">Safe bunks: 0</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Subject-Wise Attendance Cards -->
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-top:16px; margin-bottom:10px;">
+        <h3>Subject Breakdown</h3>
+        <button id="btn-dash-add-subj" class="btn btn-secondary btn-sm">+ Add Subject</button>
+      </div>
+
+      <div id="dash-subjects-list">
+        <!-- Injected dynamically via app.js -->
+        <div class="card" style="text-align:center; padding:24px;">
+          <p style="margin-bottom:12px;">No subjects configured yet. Add your 4th-year MBBS subjects to start tracking!</p>
+          <button id="btn-empty-add-subj" class="btn btn-primary">+ Add First Subject</button>
+        </div>
+      </div>
+
+      <!-- Quick Leave Simulator Link -->
+      <div class="card" style="margin-top:16px; display:flex; justify-content:space-between; align-items:center; cursor:pointer;" id="dash-leave-quicklink">
+        <div>
+          <h4 style="margin-bottom:2px;">Planning to take leave?</h4>
+          <p style="font-size:0.8rem; margin:0;">Forecast your safe absences and leave impact</p>
+        </div>
+        <button class="btn btn-secondary btn-sm">Open Planner &rarr;</button>
+      </div>
+    </section>
+
+    <!-- 2. DAILY ATTENDANCE VIEW -->
+    <section id="view-daily" class="view-section">
+      <!-- Date Navigation Header -->
+      <div class="date-nav">
+        <button id="btn-prev-day" class="icon-btn" aria-label="Previous Day">
+          <svg viewBox="0 0 24 24"><path d="M15 19l-7-7 7-7"/></svg>
+        </button>
+        <div id="daily-date-picker-trigger" class="date-display">
+          <span id="daily-date-heading" class="date-main">Today</span>
+          <span id="daily-date-sub" class="date-sub">Loading...</span>
+        </div>
+        <button id="btn-next-day" class="icon-btn" aria-label="Next Day">
+          <svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg>
+        </button>
+      </div>
+
+      <!-- Hidden Native Date Picker for accurate selection -->
+      <input type="date" id="native-date-input" style="display:none;">
+
+      <!-- Day Actions Row -->
+      <div style="display:flex; gap:8px; margin-bottom:12px;">
+        <button id="btn-mark-all-present" class="btn btn-secondary btn-sm" style="flex:1;">Mark All Present</button>
+        <button id="btn-toggle-holiday" class="btn btn-secondary btn-sm" style="flex:1;">Day is Holiday</button>
+        <button id="btn-add-extra-session" class="btn btn-secondary btn-sm">+ Extra Class</button>
+      </div>
+
+      <!-- Daily Sessions Container -->
+      <div id="daily-sessions-list">
+        <!-- Rendered dynamically via app.js -->
+      </div>
+    </section>
+
+    <!-- 3. TIMETABLE VIEW -->
+    <section id="view-timetable" class="view-section">
+      <div class="card-header">
+        <div>
+          <h2>Timetable Configuration</h2>
+          <p>Weekly repeating schedule for 4th Year MBBS</p>
+        </div>
+        <button id="btn-new-timetable-version" class="btn btn-primary btn-sm">+ New Version</button>
+      </div>
+
+      <div class="card" id="timetable-version-card">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <strong id="tt-active-version-name">Standard Term 1</strong>
+            <p id="tt-active-version-date" style="font-size:0.75rem; margin:0;">Effective from: 2026-08-01</p>
+          </div>
+          <span class="badge badge-safe">Active</span>
+        </div>
+      </div>
+
+      <!-- Weekly Day Tabs -->
+      <div style="display:flex; gap:6px; overflow-x:auto; padding-bottom:8px; margin-bottom:12px;" id="tt-day-tabs">
+        <button class="btn btn-sm btn-secondary tt-day-tab active" data-day="1">Mon</button>
+        <button class="btn btn-sm btn-secondary tt-day-tab" data-day="2">Tue</button>
+        <button class="btn btn-sm btn-secondary tt-day-tab" data-day="3">Wed</button>
+        <button class="btn btn-sm btn-secondary tt-day-tab" data-day="4">Thu</button>
+        <button class="btn btn-sm btn-secondary tt-day-tab" data-day="5">Fri</button>
+        <button class="btn btn-sm btn-secondary tt-day-tab" data-day="6">Sat</button>
+      </div>
+
+      <!-- Selected Day Slot List -->
+      <div id="tt-slots-list">
+        <!-- Slots rendered dynamically -->
+      </div>
+    </section>
+
+    <!-- 4. SUBJECTS & CLINICAL POSTINGS VIEW -->
+    <section id="view-subjects" class="view-section">
+      <div class="card-header">
+        <div>
+          <h2>Subjects & Baselines</h2>
+          <p>Manage 4th-year subjects, historical attendance, and thresholds</p>
+        </div>
+        <button id="btn-add-subject-modal" class="btn btn-primary btn-sm">+ New Subject</button>
+      </div>
+
+      <div id="subjects-management-list">
+        <!-- Rendered dynamically -->
+      </div>
+
+      <div class="card-header" style="margin-top:28px;">
+        <div>
+          <h2>Clinical Posting Rotations</h2>
+          <p>Clinical department postings and duration date ranges</p>
+        </div>
+        <button id="btn-add-rotation-modal" class="btn btn-primary btn-sm">+ New Posting</button>
+      </div>
+
+      <div id="rotations-management-list">
+        <!-- Rendered dynamically -->
+      </div>
+    </section>
+
+    <!-- 5. LEAVE PLANNER VIEW -->
+    <section id="view-leave" class="view-section">
+      <div class="card-header">
+        <div>
+          <h2>Leave & Attendance Planner</h2>
+          <p>Simulate how missing future dates affects your exam eligibility</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="leave-start-date">Leave Start Date</label>
+            <input type="date" id="leave-start-date" class="form-input">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="leave-end-date">Leave End Date</label>
+            <input type="date" id="leave-end-date" class="form-input">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="leave-cutoff-date">Exam Attendance Cut-off Date</label>
+          <input type="date" id="leave-cutoff-date" class="form-input">
+          <small style="color:var(--text-subtle); font-size:0.75rem;">Classes scheduled after this cut-off will not be counted in the projection.</small>
+        </div>
+
+        <button id="btn-run-leave-simulation" class="btn btn-primary btn-block">Simulate Proposed Leave</button>
+      </div>
+
+      <!-- Simulation Results Container -->
+      <div id="leave-results-container" style="display:none; margin-top:16px;">
+        <!-- Injected via app.js -->
+      </div>
+    </section>
+
+    <!-- 6. REPORTS VIEW -->
+    <section id="view-reports" class="view-section">
+      <div class="card-header">
+        <div>
+          <h2>Attendance Reports</h2>
+          <p>Audit and export your verified attendance records</p>
+        </div>
+        <div style="display:flex; gap:6px;">
+          <button id="btn-export-csv" class="btn btn-secondary btn-sm">Export CSV</button>
+          <button id="btn-print-report" class="btn btn-secondary btn-sm">Print</button>
+        </div>
+      </div>
+
+      <div id="reports-content-container">
+        <!-- Rendered dynamically -->
+      </div>
+    </section>
+
+    <!-- 7. SETTINGS, BACKUP & ACCEPTANCE TESTS VIEW -->
+    <section id="view-settings" class="view-section">
+      <div class="card-header">
+        <div>
+          <h2>Settings & Backup</h2>
+          <p>Local backup, thresholds, and mandatory verification</p>
+        </div>
+      </div>
+
+      <!-- Backup and Restore Card -->
+      <div class="card">
+        <h3 class="card-title">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+          Data Backup & Safety
+        </h3>
+        <p style="margin-bottom:12px;">Since all attendance data is strictly stored locally on your device's IndexedDB, download a backup periodically to ensure your records are never lost.</p>
+        
+        <div style="display:flex; gap:8px;">
+          <button id="btn-backup-data" class="btn btn-primary btn-block">
+            Back Up My Data (JSON)
+          </button>
+          <button id="btn-restore-trigger" class="btn btn-secondary btn-block">
+            Restore Backup
+          </button>
+          <input type="file" id="backup-file-input" accept=".json" style="display:none;">
+        </div>
+
+        <div id="backup-status-text" style="font-size:0.75rem; color:var(--text-muted); margin-top:8px;">
+          Last backup: Never
+        </div>
+      </div>
+
+      <!-- Thresholds Configuration -->
+      <div class="card">
+        <h3 class="card-title">Default College Thresholds</h3>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="setting-theory-min">Theory Minimum %</label>
+            <input type="number" id="setting-theory-min" class="form-input" min="50" max="100" value="75">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="setting-clinical-min">Clinical Minimum %</label>
+            <input type="number" id="setting-clinical-min" class="form-input" min="50" max="100" value="80">
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="setting-safety-buffer">Target Safety Buffer (% above minimum)</label>
+          <input type="number" id="setting-safety-buffer" class="form-input" min="0" max="20" value="5">
+        </div>
+        <button id="btn-save-threshold-settings" class="btn btn-secondary btn-sm">Save Threshold Preferences</button>
+      </div>
+
+      <!-- Mandatory Acceptance Tests Runner -->
+      <div class="card">
+        <h3 class="card-title">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          Acceptance Tests Verification
+        </h3>
+        <p style="margin-bottom:12px;">Run the embedded automated test suite to verify all mandatory specification calculation rules (Tests 1 through 8 and Test 11).</p>
+        <button id="btn-run-acceptance-tests" class="btn btn-primary btn-block">
+          Run Acceptance Tests Now
+        </button>
+
+        <div id="test-results-container" style="margin-top:14px; display:none;">
+          <!-- Test results injected here -->
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Mobile Bottom Navigation Bar (Thumb friendly, accessible) -->
+  <nav class="bottom-nav">
+    <button class="nav-item active" data-view="dashboard">
+      <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+      <span>Dashboard</span>
+      <span id="nav-pending-dot" class="badge-dot" style="display:none;"></span>
+    </button>
+    <button class="nav-item" data-view="daily">
+      <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      <span>Daily</span>
+    </button>
+    <button class="nav-item" data-view="timetable">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      <span>Timetable</span>
+    </button>
+    <button class="nav-item" data-view="subjects">
+      <svg viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
+      <span>Subjects</span>
+    </button>
+    <button class="nav-item" data-view="leave">
+      <svg viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+      <span>Leave</span>
+    </button>
+    <button class="nav-item" data-view="settings">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+      <span>More</span>
+    </button>
+  </nav>
+
+  <!-- ================= MODALS ================= -->
+
+  <!-- 1. Subject Add/Edit Modal (with historical baseline wizard) -->
+  <div id="modal-subject" class="modal-overlay">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="modal-subject-title" class="modal-title">Add 4th-Year Subject</h3>
+        <button class="icon-btn btn-close-modal" aria-label="Close Modal">&times;</button>
+      </div>
+
+      <form id="form-subject">
+        <input type="hidden" id="subj-edit-id">
+
+        <div class="form-group">
+          <label class="form-label" for="subj-name">Subject Name *</label>
+          <input type="text" id="subj-name" class="form-input" placeholder="e.g. General Medicine" required>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="subj-theory-min">Theory Target %</label>
+            <input type="number" id="subj-theory-min" class="form-input" value="75" min="50" max="100" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="subj-clinical-min">Clinical Target %</label>
+            <input type="number" id="subj-clinical-min" class="form-input" value="80" min="50" max="100" required>
+          </div>
+        </div>
+
+        <!-- Historical Baseline Section -->
+        <div style="background:var(--bg-surface-elevated); padding:12px; border-radius:var(--radius-md); margin-bottom:14px;">
+          <h4 style="font-size:0.9rem; margin-bottom:4px;">Official Historical Baseline</h4>
+          <p style="font-size:0.75rem; margin-bottom:10px;">Enter official attendance records from 2nd/3rd year. Baseline counts must be non-negative integers and attended &le; conducted.</p>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label" for="subj-base-theory-conducted">Past Theory Conducted</label>
+              <input type="number" id="subj-base-theory-conducted" class="form-input" value="0" min="0">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="subj-base-theory-attended">Past Theory Attended</label>
+              <input type="number" id="subj-base-theory-attended" class="form-input" value="0" min="0">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label" for="subj-base-clin-conducted">Past Clinical Conducted</label>
+              <input type="number" id="subj-base-clin-conducted" class="form-input" value="0" min="0">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="subj-base-clin-attended">Past Clinical Attended</label>
+              <input type="number" id="subj-base-clin-attended" class="form-input" value="0" min="0">
+            </div>
+          </div>
+
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="subj-base-ref">Reference Period / Notes</label>
+            <input type="text" id="subj-base-ref" class="form-input" placeholder="e.g. As of official college list 31-July">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="subj-exam-cutoff">Subject Exam Cut-off Date</label>
+          <input type="date" id="subj-exam-cutoff" class="form-input">
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary btn-close-modal" style="flex:1;">Cancel</button>
+          <button type="submit" class="btn btn-primary" style="flex:1;">Save Subject</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 2. Posting Rotation Modal -->
+  <div id="modal-rotation" class="modal-overlay">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="modal-rotation-title" class="modal-title">Clinical Posting Rotation</h3>
+        <button class="icon-btn btn-close-modal" aria-label="Close Modal">&times;</button>
+      </div>
+
+      <form id="form-rotation">
+        <input type="hidden" id="rot-edit-id">
+
+        <div class="form-group">
+          <label class="form-label" for="rot-dept-name">Department Name *</label>
+          <input type="text" id="rot-dept-name" class="form-input" placeholder="e.g. General Medicine Unit 2" required>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="rot-linked-subject">Linked Subject</label>
+          <select id="rot-linked-subject" class="form-select" required>
+            <!-- Injected dynamically -->
+          </select>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="rot-start-date">Start Date *</label>
+            <input type="date" id="rot-start-date" class="form-input" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="rot-end-date">End Date *</label>
+            <input type="date" id="rot-end-date" class="form-input" required>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="rot-threshold">Required Rotation Minimum %</label>
+          <input type="number" id="rot-threshold" class="form-input" value="80" min="50" max="100">
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary btn-close-modal" style="flex:1;">Cancel</button>
+          <button type="submit" class="btn btn-primary" style="flex:1;">Save Rotation</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 3. Add Extra Class Modal -->
+  <div id="modal-extra-class" class="modal-overlay">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 class="modal-title">Add Extra / Rescheduled Class</h3>
+        <button class="icon-btn btn-close-modal" aria-label="Close Modal">&times;</button>
+      </div>
+
+      <form id="form-extra-class">
+        <div class="form-group">
+          <label class="form-label" for="extra-subject">Subject *</label>
+          <select id="extra-subject" class="form-select" required>
+            <!-- Injected dynamically -->
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="extra-category">Session Category *</label>
+          <select id="extra-category" class="form-select" required>
+            <option value="theory">Theory Class (1 class)</option>
+            <option value="clinical">Clinical Posting / Practical (1 class)</option>
+          </select>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="extra-start-time">Start Time</label>
+            <input type="time" id="extra-start-time" class="form-input" value="16:00" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="extra-end-time">End Time</label>
+            <input type="time" id="extra-end-time" class="form-input" value="18:00" required>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="extra-status">Initial Status</label>
+          <select id="extra-status" class="form-select">
+            <option value="present">Present</option>
+            <option value="absent">Absent</option>
+            <option value="pending" selected>Pending</option>
+          </select>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary btn-close-modal" style="flex:1;">Cancel</button>
+          <button type="submit" class="btn btn-primary" style="flex:1;">Add Class</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 4. Backup Restore Preview Modal -->
+  <div id="modal-restore-preview" class="modal-overlay">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 class="modal-title">Confirm Backup Restoration</h3>
+        <button class="icon-btn btn-close-modal" aria-label="Close Modal">&times;</button>
+      </div>
+      <div class="alert-banner warning">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <div>
+          <strong>Warning:</strong> Restoring this backup will overwrite your current local records with the backup file data.
+        </div>
+      </div>
+      <div id="restore-summary-content" style="background:var(--bg-surface-elevated); padding:14px; border-radius:var(--radius-md); font-size:0.85rem; margin-bottom:16px;">
+        <!-- Injected via app.js -->
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary btn-close-modal" style="flex:1;">Cancel</button>
+        <button id="btn-confirm-restore" type="button" class="btn btn-danger" style="flex:1;">Overwrite & Restore</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 5. New Timetable Version Modal -->
+  <div id="modal-timetable-version" class="modal-overlay">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 class="modal-title">Create New Timetable Version</h3>
+        <button class="icon-btn btn-close-modal" aria-label="Close Modal">&times;</button>
+      </div>
+
+      <form id="form-timetable-version">
+        <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:12px;">
+          Timetable changes apply strictly from the effective start date onwards. Past recorded attendance and completed sessions will remain completely intact.
+        </p>
+
+        <div class="form-group">
+          <label class="form-label" for="tt-new-name">Version Name *</label>
+          <input type="text" id="tt-new-name" class="form-input" placeholder="e.g. 4th Year Term 2 Timetable" required>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="tt-new-start-date">Effective Start Date *</label>
+          <input type="date" id="tt-new-start-date" class="form-input" required>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary btn-close-modal" style="flex:1;">Cancel</button>
+          <button type="submit" class="btn btn-primary" style="flex:1;">Create Version</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Main Application Script (ES Module, zero external libraries) -->
+  <script type="module" src="js/app.js"></script>
+
+</body>
+</html>
