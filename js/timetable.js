@@ -59,6 +59,55 @@ export const TimetableEngine = {
    * @param {Object} dateOverride - Full-day holiday or day swap override
    * @param {Array} subjects - List of all configured subjects
    */
+  /**
+   * Calculates the ordinal occurrence of a weekday in its calendar month (1st, 2nd, 3rd, 4th, 5th)
+   * Invariant: Day 1-7 = 1st, Day 8-14 = 2nd, Day 15-21 = 3rd, Day 22-28 = 4th, Day 29-31 = 5th
+   * @param {Date} date
+   * @returns {number} 1, 2, 3, 4, or 5
+   */
+  getOrdinalOccurrence(date) {
+    return Math.ceil(date.getDate() / 7);
+  },
+
+  /**
+   * Returns human-readable ordinal label (1st, 2nd, 3rd, 4th, 5th)
+   */
+  getOrdinalSuffix(n) {
+    const s = ['th', 'st', 'nd', 'rd', 'th'];
+    const v = n % 100;
+    return n + (s[(v - 20) % 10] || s[v] || s[0]);
+  },
+
+  /**
+   * Returns weekday name from dayOfWeek (0=Sun..6=Sat)
+   */
+  getWeekdayName(dayOfWeek) {
+    const names = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    return names[dayOfWeek] || 'Day';
+  },
+
+  /**
+   * Calculates calendar week number of month (with configurable weekStart: 1=Mon, 0=Sun)
+   */
+  getCalendarWeekOfMonth(date, weekStart = 1) {
+    const d = new Date(date.getTime());
+    const firstDay = new Date(d.getFullYear(), d.getMonth(), 1);
+    const firstDayOfWeek = firstDay.getDay();
+    const offset = (firstDayOfWeek - weekStart + 7) % 7;
+    return Math.ceil((d.getDate() + offset) / 7);
+  },
+
+  /**
+   * Resolves or generates the sessions for a specific date
+   * Fully supports weekly, monthly ordinal rotation (1st, 2nd, 3rd, 4th, 5th occurrence),
+   * calendar week rotation, and clinical rotations.
+   * @param {string} dateStr - 'YYYY-MM-DD'
+   * @param {Array} existingSessions - Any already saved sessions from DB (Ground truth)
+   * @param {Array} timetableVersions - All timetable versions
+   * @param {Array} rotations - All clinical rotations
+   * @param {Object} dateOverride - Full-day holiday or day swap override
+   * @param {Array} subjects - List of all configured subjects
+   */
   resolveSessionsForDate({
     dateStr,
     existingSessions = [],
@@ -67,12 +116,12 @@ export const TimetableEngine = {
     dateOverride = null,
     subjects = []
   }) {
-    // If sessions already exist in DB for this date, return them (they are ground truth)
+    // 1. Precedence 1: Existing sessions in DB are Ground Truth (never overwritten)
     if (existingSessions && existingSessions.length > 0) {
       return existingSessions;
     }
 
-    // Check full-day holiday override
+    // 2. Precedence 2: Full-day holiday override
     if (dateOverride && dateOverride.isHoliday) {
       return [];
     }
@@ -85,7 +134,7 @@ export const TimetableEngine = {
       dayOfWeek = dateOverride.timetableDaySwap;
     }
 
-    // Sunday is off by default
+    // Sunday is off by default unless specially scheduled
     if (dayOfWeek === 0) {
       return [];
     }
@@ -99,24 +148,74 @@ export const TimetableEngine = {
     const daySlots = version.slots.filter(s => s.dayOfWeek === dayOfWeek);
     const activeRotation = this.getActiveRotationForDate(rotations, dateStr);
 
+    const occurrence = this.getOrdinalOccurrence(dateObj); // 1..5
+    const occurrenceLabel = this.getOrdinalSuffix(occurrence);
+    const weekdayName = this.getWeekdayName(dayOfWeek);
+
     const generated = [];
+    const occupiedTimeWindows = new Set();
+
     for (const slot of daySlots) {
-      // Determine subjectId and posting
+      // Slot-level effective date boundary check
+      if (slot.effectiveStartDate && dateStr < slot.effectiveStartDate) continue;
+      if (slot.effectiveEndDate && dateStr > slot.effectiveEndDate) continue;
+
+      // Prevent duplicate sessions in the exact same time window
+      const timeWindowKey = `${slot.startTime}_${slot.endTime}`;
+      if (occupiedTimeWindows.has(timeWindowKey)) {
+        continue;
+      }
+
       let slotSubjectId = slot.subjectId;
+      let slotType = slot.type || 'theory';
+      let rotationNote = '';
+
+      // Determine subject based on recurrenceMode
+      if (slot.recurrenceMode === 'monthly_ordinal') {
+        const occRules = slot.monthlyOccurrences || {};
+        const occConfig = occRules[occurrence];
+        
+        if (occConfig) {
+          if (typeof occConfig === 'string') {
+            slotSubjectId = occConfig;
+          } else if (typeof occConfig === 'object') {
+            slotSubjectId = occConfig.subjectId !== undefined ? occConfig.subjectId : slotSubjectId;
+            slotType = occConfig.type || slotType;
+          }
+          rotationNote = `${occurrenceLabel} ${weekdayName}`;
+        } else if (slot.skipUnassignedOccurrences) {
+          // If configured to skip occurrences with no assigned subject
+          continue;
+        }
+      } else if (slot.recurrenceMode === 'calendar_week') {
+        const calWeek = this.getCalendarWeekOfMonth(dateObj, slot.calendarWeekStart ?? 1);
+        const calRules = slot.calendarWeekOccurrences || {};
+        const calConfig = calRules[calWeek];
+        if (calConfig) {
+          slotSubjectId = typeof calConfig === 'string' ? calConfig : (calConfig.subjectId || slotSubjectId);
+          rotationNote = `Week ${calWeek} of Month`;
+        }
+      }
+
       let postingRotationId = null;
       let postingName = slot.defaultPostingDepartment || '';
 
-      if (slot.type === 'clinical' && activeRotation) {
+      // Clinical slot and posting rotation matching
+      if (slotType === 'clinical' && activeRotation) {
         postingRotationId = activeRotation.id;
         postingName = activeRotation.departmentName;
-        // Clinical slot inherits rotation's linked subject if not explicitly specified
         if (activeRotation.linkedSubjectId) {
           slotSubjectId = activeRotation.linkedSubjectId;
         }
       }
 
-      // If subject was deleted or not found, fallback gracefully
+      occupiedTimeWindows.add(timeWindowKey);
+
+      // Match subject from subjects collection
       const matchedSubject = subjects.find(s => s.id === slotSubjectId);
+      const subjectDisplayName = matchedSubject 
+        ? matchedSubject.name 
+        : (postingName || 'Unassigned Subject');
 
       generated.push({
         id: `${dateStr}_${slot.id}`,
@@ -124,14 +223,15 @@ export const TimetableEngine = {
         startTime: slot.startTime,
         endTime: slot.endTime,
         subjectId: slotSubjectId,
-        subjectName: matchedSubject ? matchedSubject.name : (postingName || 'Unassigned Subject'),
-        category: slot.type,
+        subjectName: subjectDisplayName,
+        category: slotType,
         postingRotationId,
         postingDepartmentName: postingName,
         status: 'pending', // Starts visibly pending, never assumed absent
         source: 'timetable',
         timetableVersionId: version.id,
-        notes: slot.notes || ''
+        notes: slot.notes || '',
+        rotationNote // e.g. "1st Wednesday", "3rd Thursday"
       });
     }
 

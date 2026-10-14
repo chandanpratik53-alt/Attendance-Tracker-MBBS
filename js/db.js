@@ -294,6 +294,46 @@ export const DBService = {
     return true;
   },
 
+  /**
+   * Safely and atomically clears the 5 operational data stores:
+   * (sessions, date_overrides, subjects, posting_rotations, timetable_versions)
+   * within a single readwrite transaction.
+   * Strictly preserves app_settings (theme, thresholds, safety buffer, etc.).
+   * Never calls indexedDB.deleteDatabase() or alters the database schema.
+   */
+  async resetApplicationData({ preserveSettings = true } = {}) {
+    const db = await this.getDB();
+    const storesToClear = [
+      'sessions',
+      'date_overrides',
+      'subjects',
+      'posting_rotations',
+      'timetable_versions'
+    ];
+
+    return new Promise((resolve, reject) => {
+      try {
+        const tx = db.transaction(storesToClear, 'readwrite');
+
+        tx.onerror = (event) => {
+          console.error('Reset transaction failed:', tx.error || event.target?.error);
+          reject(tx.error || new Error('Reset transaction aborted'));
+        };
+
+        tx.oncomplete = () => {
+          resolve(true);
+        };
+
+        for (const storeName of storesToClear) {
+          const store = tx.objectStore(storeName);
+          store.clear();
+        }
+      } catch (err) {
+        reject(err);
+      }
+    });
+  },
+
   // Reset/Clear for acceptance testing
   async clearAllData() {
     const stores = ['subjects', 'timetable_versions', 'posting_rotations', 'sessions', 'date_overrides', 'app_settings'];

@@ -19,6 +19,8 @@ class MBBSAttendanceApp {
     this.safetyBuffer = 5;
     this.theoryMin = 75;
     this.clinicalMin = 80;
+    this.resetBackupDownloaded = false;
+    this.isResetting = false;
   }
 
   getTodayDateString() {
@@ -44,7 +46,8 @@ class MBBSAttendanceApp {
     // 1. Register Service Worker for 100% offline caching
     if ('serviceWorker' in navigator) {
       try {
-        await navigator.serviceWorker.register('./sw.js', { scope: './' });
+        const reg = await navigator.serviceWorker.register('./sw.js', { scope: './' });
+        reg?.update();
         console.log('MBBS Attendance Tracker PWA Service Worker Registered with scope: ./');
       } catch (err) {
         console.warn('Service Worker registration skipped/failed:', err);
@@ -62,12 +65,14 @@ class MBBSAttendanceApp {
     this.setupThemeToggle();
     this.setupDailyViewEvents();
     this.setupTimetableEvents();
+    this.setupSlotConfigModalEvents();
     this.setupSubjectModalEvents();
     this.setupRotationModalEvents();
     this.setupExtraClassModalEvents();
     this.setupLeavePlannerEvents();
     this.setupReportsEvents();
     this.setupSettingsEvents();
+    this.setupResetModalEvents();
     this.setupAcceptanceTestsEvents();
 
     // 5. Initial Data Load & Render
@@ -437,6 +442,7 @@ class MBBSAttendanceApp {
             <div class="session-meta">
               <span>Category: <strong>${session.category === 'theory' ? 'Theory (1 class)' : 'Clinical Posting (1 class)'}</strong></span>
               ${session.postingDepartmentName ? `<span>Rotation: <strong>${session.postingDepartmentName}</strong></span>` : ''}
+              ${session.rotationNote ? `<span class="badge" style="background:var(--primary-light, #e0e7ff); color:var(--primary, #4338ca); font-size:0.75rem; font-weight:600; padding:2px 6px; border-radius:4px;">${session.rotationNote}</span>` : ''}
             </div>
           </div>
           <span class="badge badge-${this.getStatusBadgeClass(session.status)}">${this.formatStatus(session.status)}</span>
@@ -563,22 +569,26 @@ class MBBSAttendanceApp {
       card.className = 'card';
       card.style.marginBottom = '8px';
 
-      const matchedSubj = this.subjects.find(s => s.id === slot.subjectId);
-      const displayTitle = matchedSubj ? matchedSubj.name : (slot.type === 'clinical' ? 'Clinical Posting' : 'Unassigned');
+      const displayTitle = this.formatSlotRecurrenceSummary(slot);
+      const isRotating = slot.recurrenceMode === 'monthly_ordinal';
 
       card.innerHTML = `
         <div style="display:flex; justify-content:space-between; align-items:center;">
           <div>
-            <span class="session-time">${slot.startTime} - ${slot.endTime}</span>
+            <div style="display:flex; align-items:center; gap:6px;">
+              <span class="session-time">${slot.startTime} - ${slot.endTime}</span>
+              ${isRotating ? '<span class="badge" style="background:#6366f1; color:#fff; font-size:0.68rem; padding:1px 6px;">Rotating Monthly</span>' : ''}
+              ${slot.effectiveStartDate || slot.effectiveEndDate ? `<span class="badge" style="font-size:0.68rem; padding:1px 6px;">${slot.effectiveStartDate || ''}..${slot.effectiveEndDate || ''}</span>` : ''}
+            </div>
             <h4 style="margin:4px 0 2px 0;">${displayTitle}</h4>
             <span style="font-size:0.75rem; color:var(--text-muted);">${slot.type === 'theory' ? 'Theory (1 class)' : 'Clinical Posting (1 class)'}</span>
           </div>
-          <button class="btn btn-secondary btn-sm btn-edit-slot" data-slot-id="${slot.id}">Assign</button>
+          <button class="btn btn-secondary btn-sm btn-edit-slot" data-slot-id="${slot.id}">Configure</button>
         </div>
       `;
 
       card.querySelector('.btn-edit-slot').onclick = () => {
-        this.openSlotAssignPrompt(slot, activeVersion);
+        this.openSlotConfigModal(slot, activeVersion);
       };
 
       container.appendChild(card);
@@ -604,33 +614,141 @@ class MBBSAttendanceApp {
     container.appendChild(extraCard);
   }
 
-  async openSlotAssignPrompt(slot, version) {
+  formatSlotRecurrenceSummary(slot) {
+    if (slot.recurrenceMode === 'monthly_ordinal') {
+      const occs = slot.monthlyOccurrences || {};
+      const groups = {};
+      for (let i = 1; i <= 5; i++) {
+        const sid = occs[i];
+        if (sid) {
+          if (!groups[sid]) groups[sid] = [];
+          groups[sid].push(TimetableEngine.getOrdinalSuffix(i));
+        }
+      }
+      const keys = Object.keys(groups);
+      if (keys.length > 0) {
+        return keys.map(sid => {
+          const s = this.subjects.find(sub => sub.id === sid);
+          const name = s ? s.name : 'Unknown';
+          return `${groups[sid].join(', ')}: ${name}`;
+        }).join(' • ');
+      }
+      return 'Rotating Monthly (Unassigned)';
+    }
+
+    const matched = this.subjects.find(s => s.id === slot.subjectId);
+    return matched ? matched.name : (slot.type === 'clinical' ? 'Clinical Posting' : 'Unassigned');
+  }
+
+  setupSlotConfigModalEvents() {
+    const modal = document.getElementById('modal-slot-config');
+    const form = document.getElementById('form-slot-config');
+    const closeBtns = modal ? modal.querySelectorAll('.btn-close-modal') : [];
+    const modeSelect = document.getElementById('slot-cfg-mode');
+    const presetBtn = document.getElementById('btn-slot-preset-alternate');
+
+    closeBtns.forEach(btn => {
+      btn.addEventListener('click', () => modal.classList.remove('active'));
+    });
+
+    modeSelect?.addEventListener('change', () => {
+      const mode = modeSelect.value;
+      const weeklyGroup = document.getElementById('slot-cfg-weekly-group');
+      const rotatingGroup = document.getElementById('slot-cfg-rotating-group');
+      if (weeklyGroup) weeklyGroup.style.display = (mode === 'weekly') ? 'block' : 'none';
+      if (rotatingGroup) rotatingGroup.style.display = (mode === 'monthly_ordinal') ? 'block' : 'none';
+    });
+
+    presetBtn?.addEventListener('click', () => {
+      const occ1 = document.getElementById('slot-cfg-occ-1');
+      const occ2 = document.getElementById('slot-cfg-occ-2');
+      let subjA = occ1.value || (this.subjects[0]?.id || '');
+      let subjB = occ2.value || (this.subjects[1]?.id || this.subjects[0]?.id || '');
+
+      occ1.value = subjA;
+      occ2.value = subjB;
+      document.getElementById('slot-cfg-occ-3').value = subjA;
+      document.getElementById('slot-cfg-occ-4').value = subjB;
+      document.getElementById('slot-cfg-occ-5').value = subjA;
+    });
+
+    form?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const slotId = document.getElementById('slot-cfg-id').value;
+      const activeVersion = TimetableEngine.getActiveVersionForDate(this.timetableVersions, this.getTodayDateString());
+      if (!activeVersion || !activeVersion.slots) return;
+
+      const slot = activeVersion.slots.find(s => s.id === slotId);
+      if (!slot) return;
+
+      slot.type = document.getElementById('slot-cfg-type').value;
+      slot.recurrenceMode = document.getElementById('slot-cfg-mode').value;
+      slot.effectiveStartDate = document.getElementById('slot-cfg-start-date').value || null;
+      slot.effectiveEndDate = document.getElementById('slot-cfg-end-date').value || null;
+
+      if (slot.recurrenceMode === 'weekly') {
+        slot.subjectId = document.getElementById('slot-cfg-weekly-subject').value || null;
+        slot.monthlyOccurrences = null;
+      } else if (slot.recurrenceMode === 'monthly_ordinal') {
+        slot.subjectId = null;
+        slot.monthlyOccurrences = {
+          1: document.getElementById('slot-cfg-occ-1').value || null,
+          2: document.getElementById('slot-cfg-occ-2').value || null,
+          3: document.getElementById('slot-cfg-occ-3').value || null,
+          4: document.getElementById('slot-cfg-occ-4').value || null,
+          5: document.getElementById('slot-cfg-occ-5').value || null
+        };
+      }
+
+      await DBService.saveTimetableVersion(activeVersion);
+      await this.refreshData();
+      modal.classList.remove('active');
+      this.renderTimetableView();
+    });
+  }
+
+  openSlotConfigModal(slot, version) {
     if (this.subjects.length === 0) {
       alert('Please add your subjects first in the Subjects tab!');
       this.switchView('subjects');
       return;
     }
 
-    const options = this.subjects.map(s => `${s.name}`).join('\n');
-    const selected = prompt(`Assign subject to slot (${slot.startTime}-${slot.endTime}):\n\nEnter subject name or number:\n` + 
-      this.subjects.map((s, i) => `${i + 1}. ${s.name}`).join('\n'));
+    const modal = document.getElementById('modal-slot-config');
+    const weekdayName = TimetableEngine.getWeekdayName(slot.dayOfWeek);
+    document.getElementById('slot-cfg-id').value = slot.id;
+    document.getElementById('slot-cfg-day-time').textContent = `${weekdayName}, ${slot.startTime} - ${slot.endTime}`;
+    document.getElementById('slot-cfg-type').value = slot.type || 'theory';
+    
+    const mode = slot.recurrenceMode || 'weekly';
+    document.getElementById('slot-cfg-mode').value = mode;
+    document.getElementById('slot-cfg-start-date').value = slot.effectiveStartDate || '';
+    document.getElementById('slot-cfg-end-date').value = slot.effectiveEndDate || '';
 
-    if (selected) {
-      const idx = parseInt(selected.trim(), 10) - 1;
-      let matched = null;
-      if (!isNaN(idx) && this.subjects[idx]) {
-        matched = this.subjects[idx];
-      } else {
-        matched = this.subjects.find(s => s.name.toLowerCase() === selected.trim().toLowerCase());
-      }
+    // Populate weekly dropdown
+    const weeklySelect = document.getElementById('slot-cfg-weekly-subject');
+    weeklySelect.innerHTML = '<option value="">-- Unassigned / Free --</option>' +
+      this.subjects.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+    weeklySelect.value = slot.subjectId || '';
 
-      if (matched) {
-        slot.subjectId = matched.id;
-        await DBService.saveTimetableVersion(version);
-        await this.refreshData();
-        this.renderTimetableView();
+    // Populate occurrence dropdowns
+    for (let i = 1; i <= 5; i++) {
+      const occSelect = document.getElementById(`slot-cfg-occ-${i}`);
+      if (occSelect) {
+        occSelect.innerHTML = '<option value="">-- No Class / Unassigned --</option>' +
+          this.subjects.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+        const val = (slot.monthlyOccurrences && slot.monthlyOccurrences[i]) || '';
+        occSelect.value = val;
       }
     }
+
+    // Toggle mode sections
+    const weeklyGroup = document.getElementById('slot-cfg-weekly-group');
+    const rotatingGroup = document.getElementById('slot-cfg-rotating-group');
+    if (weeklyGroup) weeklyGroup.style.display = (mode === 'weekly') ? 'block' : 'none';
+    if (rotatingGroup) rotatingGroup.style.display = (mode === 'monthly_ordinal') ? 'block' : 'none';
+
+    modal.classList.add('active');
   }
 
   async add4to6Slot(version) {
@@ -1294,6 +1412,120 @@ class MBBSAttendanceApp {
     });
   }
 
+  setupResetModalEvents() {
+    const btnOpen = document.getElementById('btn-open-reset-modal');
+    const modal = document.getElementById('modal-reset-data');
+    const btnDownloadBackup = document.getElementById('btn-reset-download-backup');
+    const statusBackup = document.getElementById('reset-backup-status');
+    const chkBackup = document.getElementById('chk-reset-backup-confirmed');
+    const chkLoss = document.getElementById('chk-reset-understand-loss');
+    const inputConfirm = document.getElementById('input-reset-confirm-text');
+    const btnExecute = document.getElementById('btn-final-reset-execute');
+    const formReset = document.getElementById('form-reset-confirmation');
+    const closeBtns = modal ? modal.querySelectorAll('.btn-close-modal') : [];
+
+    const resetModalState = () => {
+      this.resetBackupDownloaded = false;
+      if (statusBackup) {
+        statusBackup.textContent = 'Backup not yet exported in this session.';
+        statusBackup.style.color = 'var(--status-risk)';
+      }
+      if (chkBackup) chkBackup.checked = false;
+      if (chkLoss) chkLoss.checked = false;
+      if (inputConfirm) inputConfirm.value = '';
+      if (btnExecute) {
+        btnExecute.disabled = true;
+        btnExecute.textContent = 'Erase All Data & Start Fresh';
+      }
+    };
+
+    const updateValidation = () => {
+      const isExported = this.resetBackupDownloaded;
+      const isChkBackup = chkBackup ? chkBackup.checked : false;
+      const isChkLoss = chkLoss ? chkLoss.checked : false;
+      const textVal = inputConfirm ? inputConfirm.value.trim() : '';
+      const isTextReset = textVal === 'RESET';
+
+      const canProceed = isExported && isChkBackup && isChkLoss && isTextReset && !this.isResetting;
+      if (btnExecute) {
+        btnExecute.disabled = !canProceed;
+      }
+    };
+
+    btnOpen?.addEventListener('click', () => {
+      resetModalState();
+      modal?.classList.add('active');
+    });
+
+    closeBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        modal?.classList.remove('active');
+        resetModalState();
+      });
+    });
+
+    btnDownloadBackup?.addEventListener('click', async () => {
+      try {
+        await this.exportBackupFile();
+        this.resetBackupDownloaded = true;
+        if (statusBackup) {
+          statusBackup.textContent = '✓ Backup exported and downloaded to your device.';
+          statusBackup.style.color = 'var(--status-safe)';
+        }
+        if (chkBackup) {
+          chkBackup.checked = true;
+        }
+        updateValidation();
+      } catch (err) {
+        alert('Failed to export backup: ' + err.message);
+      }
+    });
+
+    chkBackup?.addEventListener('change', updateValidation);
+    chkLoss?.addEventListener('change', updateValidation);
+    inputConfirm?.addEventListener('input', updateValidation);
+
+    formReset?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const isExported = this.resetBackupDownloaded;
+      const isChkBackup = chkBackup ? chkBackup.checked : false;
+      const isChkLoss = chkLoss ? chkLoss.checked : false;
+      const textVal = inputConfirm ? inputConfirm.value.trim() : '';
+
+      if (!isExported || !isChkBackup || !isChkLoss || textVal !== 'RESET') {
+        alert('Please complete all safeguards: export backup, verify both checkboxes, and type RESET.');
+        return;
+      }
+
+      if (this.isResetting) return;
+      this.isResetting = true;
+
+      if (btnExecute) {
+        btnExecute.disabled = true;
+        btnExecute.textContent = 'Erasing Data...';
+      }
+
+      try {
+        await DBService.resetApplicationData();
+        await this.ensureDefaultTimetable();
+        await this.refreshData();
+        modal.classList.remove('active');
+        resetModalState();
+        this.renderCurrentView();
+        alert('All test and attendance data has been successfully cleared!\n\nYour application preferences and attendance thresholds were preserved. The tracker is now clean and ready for your real subjects and timetable.');
+      } catch (err) {
+        console.error('Data reset failed:', err);
+        alert('Failed to reset data: ' + err.message + '\n\nNo changes were applied.');
+      } finally {
+        this.isResetting = false;
+        if (btnExecute) {
+          btnExecute.textContent = 'Erase All Data & Start Fresh';
+        }
+        updateValidation();
+      }
+    });
+  }
+
   async exportBackupFile() {
     const backup = await DBService.exportFullBackup();
     const jsonStr = JSON.stringify(backup, null, 2);
@@ -1405,8 +1637,15 @@ class MBBSAttendanceApp {
   }
 }
 
-// Instantiate and start app on DOM ready
-document.addEventListener('DOMContentLoaded', () => {
+// Instantiate and start app safely whether DOM is already ready or loading
+function startApp() {
   const app = new MBBSAttendanceApp();
   app.init();
-});
+  window.MBBSAttendanceAppInstance = app;
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', startApp);
+} else {
+  startApp();
+}
